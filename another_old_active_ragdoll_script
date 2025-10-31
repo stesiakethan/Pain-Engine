@@ -1,0 +1,80 @@
+extends CharacterBody3D
+
+@export var animated_player_path: NodePath = NodePath("../AnimatedPlayer")
+@onready var hip_target_node: Node3D = get_node("../HipTargetNode")
+@export var torque_strength: float = 100
+@export var force_strength: float = 100
+@export var position_stiffness: float = 0.5
+@export var rotation_stiffness: float = 0.9
+
+
+var animated_skeleton: Skeleton3D
+var ragdoll_skeleton: PhysicalBoneSimulator3D
+var ragdoll_hips_bone: PhysicalBone3D
+var ragdoll_spine_bone: PhysicalBone3D
+var ragdoll_neck_bone: PhysicalBone3D
+var ragdoll_head_bone: PhysicalBone3D
+var animated_player: CharacterBody3D
+var angular_damping := 10
+var linear_damping := 10
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	ragdoll_skeleton = $Skeleton_bare/Armature/Skeleton3D/PhysicalBoneSimulator3D
+	ragdoll_hips_bone = ragdoll_skeleton.get_node("Physical Bone mixamorig_Hips") as PhysicalBone3D
+	ragdoll_spine_bone = ragdoll_skeleton.get_node("Physical Bone mixamorig_Spine") as PhysicalBone3D
+	ragdoll_neck_bone = ragdoll_skeleton.get_node("Physical Bone mixamorig_Neck") as PhysicalBone3D
+	ragdoll_head_bone = ragdoll_skeleton.get_node("Physical Bone mixamorig_Head") as PhysicalBone3D
+	
+	animated_player = get_node(animated_player_path)
+	animated_skeleton = animated_player.get_node("Skeleton_idle/Armature/Skeleton3D")
+	
+	$Skeleton_bare/Armature/Skeleton3D/PhysicalBoneSimulator3D.physical_bones_start_simulation()
+		# Cache the root rotation of the ragdoll node (the -90° X rotation you applied)
+	var ragdoll_root_rotation = global_transform
+	var animated_player_root_rotation = animated_player.global_transform
+	print("Ragdoll player object root rotation: " + str(ragdoll_root_rotation))
+	print("Animated player object root rotation: " + str(animated_player_root_rotation))
+	print("Ragdoll hips root rotation: " + str(ragdoll_hips_root_rotation))
+	print("Animated hips root rotation: " + str(animated_hips_root_rotation))
+
+func keep_upright(bone: PhysicalBone3D, strength: float):
+	var rid: RID = bone.get_rid()
+	var current_up = bone.global_transform.basis.y
+	var target_up = Vector3.MODEL_FRONT
+	var axis = current_up.cross(target_up)
+	var angle = acos(clamp(target_up.dot(current_up), -1.0, 1.0))
+	var torque = axis.normalized() * angle * (strength * bone.mass)
+	if(angle < .3):
+		return
+	PhysicsServer3D.body_apply_torque(rid, torque)
+	
+
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _physics_process(_delta: float) -> void:
+	#keep_upright(ragdoll_hips_bone, 10)
+	#keep_upright(ragdoll_spine_bone, 10)
+	#keep_upright(ragdoll_neck_bone, 2)
+	#keep_upright(ragdoll_head_bone, 5)
+	
+	#FORCE CALCULATION
+	var target_pos : Vector3 = hip_target_node.global_position
+	var current_pos : Vector3 = ragdoll_hips_bone.global_position
+	var correction : Vector3 = target_pos - current_pos- ragdoll_hips_bone.linear_velocity * linear_damping
+	
+	#Getting physics server ID for bone to apply forces
+	var rid : RID = ragdoll_hips_bone.get_rid()
+	
+	#Applying force
+	var force = correction * force_strength
+	PhysicsServer3D.body_apply_central_force(rid, force)
+	
+	var delta_basis := ragdoll_hips_bone.global_transform.basis.inverse() * hip_target_node.global_transform.basis
+	var axis: Vector3
+	var angle: float
+	var angle_error := delta_basis.get_euler()
+	var torque := angle_error * torque_strength - ragdoll_hips_bone.angular_velocity * angular_damping
+	PhysicsServer3D.body_apply_torque(rid, force)
+
+	
+	
